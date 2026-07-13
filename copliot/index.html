@@ -1,0 +1,377 @@
+<!doctype html>
+<html>
+    <head>
+        <title>3D Space Flight Simulator - Stable Controls</title>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+        <style>
+            body {
+                margin: 0;
+                background-color: #050510;
+                color: white;
+                font-family: monospace;
+                overflow: hidden;
+            }
+            #ui-layer {
+                position: absolute;
+                top: 10px;
+                width: 100%;
+                text-align: center;
+                z-index: 100;
+                pointer-events: none;
+            }
+            h1 {
+                margin: 5px;
+                color: #00ffcc;
+                text-shadow: 0 0 10px #00ffcc;
+            }
+            #hud {
+                display: flex;
+                justify-content: space-around;
+                font-size: 1.4em;
+                color: #ff007f;
+                font-weight: bold;
+                padding: 0 50px;
+            }
+            #game-over-screen {
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(5, 5, 16, 0.85);
+                display: none;
+                flex-direction: column;
+                justify-content: center;
+                align-items: center;
+                z-index: 200;
+            }
+            #game-over-screen h2 {
+                font-size: 3rem;
+                color: #ff3333;
+                margin-bottom: 10px;
+                text-shadow: 0 0 15px #ff3333;
+            }
+            #game-over-screen p {
+                font-size: 1.5rem;
+                margin-bottom: 20px;
+            }
+            #reset-btn {
+                padding: 12px 30px;
+                font-size: 1.2rem;
+                font-family: monospace;
+                background: #00ffcc;
+                color: black;
+                border: none;
+                cursor: pointer;
+                font-weight: bold;
+                border-radius: 5px;
+                box-shadow: 0 0 15px #00ffcc;
+                transition: 0.2s;
+                pointer-events: auto;
+            }
+            #reset-btn:hover {
+                background: white;
+                box-shadow: 0 0 25px white;
+            }
+        </style>
+    </head>
+    <body>
+        <div id="ui-layer">
+            <h1>SPACE FLIGHT SIMULATOR</h1>
+            <div id="hud">
+                <div id="score-display">SCORE: 0</div>
+                <div id="telemetry">Pitch: 0.00 | Roll: 0.00</div>
+            </div>
+        </div>
+
+        <div id="game-over-screen">
+            <h2>🚀 SHIP DESTROYED 🚀</h2>
+            <p id="final-score">Final Score: 0</p>
+            <button id="reset-btn" onclick="resetGame()">
+                LAUNCH NEW SHIP
+            </button>
+        </div>
+
+        <script>
+            let score = 0;
+            let isGameOver = false;
+
+            const scene = new THREE.Scene();
+            scene.fog = new THREE.FogExp2(0x050510, 0.015);
+
+            const camera = new THREE.PerspectiveCamera(
+                75,
+                window.innerWidth / window.innerHeight,
+                0.1,
+                1000,
+            );
+            const renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
+
+            const ambientLight = new THREE.AmbientLight(0x333333);
+            scene.add(ambientLight);
+            const directionalLight = new THREE.DirectionalLight(0x00ffcc, 1);
+            directionalLight.position.set(5, 5, 5);
+            scene.add(directionalLight);
+
+            // --- 2. SPACESHIP ---
+            const shipGroup = new THREE.Group();
+            const bodyGeo = new THREE.ConeGeometry(0.4, 2.5, 4);
+            bodyGeo.rotateX(Math.PI / 2);
+            const shipMaterial = new THREE.MeshNormalMaterial();
+            const shipBody = new THREE.Mesh(bodyGeo, shipMaterial);
+            shipGroup.add(shipBody);
+
+            const wingGeo = new THREE.BoxGeometry(2.2, 0.1, 0.8);
+            const shipWings = new THREE.Mesh(wingGeo, shipMaterial);
+            shipWings.position.set(0, -0.1, -0.3);
+            shipGroup.add(shipWings);
+
+            scene.add(shipGroup);
+            const shipRadius = 0.5;
+
+            camera.position.z = 7;
+            camera.position.y = 2.2;
+            camera.lookAt(0, 0, 0);
+
+            // --- 3. ENVIRONMENT ---
+            const starsGeometry = new THREE.BufferGeometry();
+            const starsCount = 1000;
+            const starPositions = new Float32Array(starsCount * 3);
+            for (let i = 0; i < starsCount * 3; i += 3) {
+                starPositions[i] = (Math.random() - 0.5) * 100;
+                starPositions[i + 1] = (Math.random() - 0.5) * 100;
+                starPositions[i + 2] = (Math.random() - 0.5) * 200 - 100;
+            }
+            starsGeometry.setAttribute(
+                "position",
+                new THREE.BufferAttribute(starPositions, 3),
+            );
+            const starField = new THREE.Points(
+                starsGeometry,
+                new THREE.PointsMaterial({ color: 0xffffff, size: 0.1 }),
+            );
+            scene.add(starField);
+
+            const meteors = [];
+            const meteorCount = 40;
+            let baseMeteorSpeed = 0.3;
+
+            for (let i = 0; i < meteorCount; i++) {
+                const size = Math.random() * 0.5 + 0.3;
+                const meteorGeo = new THREE.IcosahedronGeometry(size, 0);
+                const meteorMat = new THREE.MeshPhongMaterial({
+                    color: 0x887766,
+                    flatShading: true,
+                });
+                const meteor = new THREE.Mesh(meteorGeo, meteorMat);
+                meteor.userData = { radius: size * 0.6 };
+                resetMeteor(meteor);
+                meteor.position.z = (Math.random() - 1) * 140;
+                scene.add(meteor);
+                meteors.push(meteor);
+            }
+
+            function resetMeteor(mesh) {
+                mesh.position.x = (Math.random() - 0.5) * 24;
+                mesh.position.y = (Math.random() - 0.5) * 16;
+                mesh.position.z = -140;
+            }
+
+            const lasers = [];
+            const laserSpeed = 1.0;
+            let canFire = true;
+            const fireCooldown = 150;
+
+            function fireLaser() {
+                if (!canFire || isGameOver) return;
+                canFire = false;
+
+                const positions = [-0.8, 0.8];
+                positions.forEach((offset) => {
+                    const laserGeo = new THREE.CylinderGeometry(
+                        0.06,
+                        0.06,
+                        0.1,
+                        4,
+                    );
+                    laserGeo.rotateX(Math.PI / 2);
+                    const laserMat = new THREE.MeshBasicMaterial({
+                        color: 0xff0055,
+                    });
+                    const laserMesh = new THREE.Mesh(laserGeo, laserMat);
+                    laserMesh.position.set(
+                        shipGroup.position.x + offset,
+                        shipGroup.position.y - 0.1,
+                        shipGroup.position.z - 0.5,
+                    );
+                    scene.add(laserMesh);
+                    lasers.push(laserMesh);
+                });
+
+                setTimeout(() => {
+                    canFire = true;
+                }, fireCooldown);
+            }
+
+            let currentPitch = 0;
+            let currentRoll = 0;
+            let targetPitch = 0;
+            let targetRoll = 0;
+
+            const flySpeed = 0.2;
+            const smoothingFactor = 0.1;
+
+            function animate() {
+                requestAnimationFrame(animate);
+
+                if (!isGameOver) {
+                    starField.position.z += 0.15;
+                    if (starField.position.z > 50) starField.position.z = 0;
+
+                    let currentSpeed = baseMeteorSpeed + score * 0.0005;
+
+                    // Update Lasers
+                    for (let l = lasers.length - 1; l >= 0; l--) {
+                        const laser = lasers[l];
+                        laser.position.z -= laserSpeed;
+                        if (laser.position.z < -130) {
+                            scene.remove(laser);
+                            lasers.splice(l, 1);
+                            continue;
+                        }
+                        for (let m = 0; m < meteors.length; m++) {
+                            const meteor = meteors[m];
+                            let dist = laser.position.distanceTo(
+                                meteor.position,
+                            );
+                            if (dist < meteor.userData.radius + 0.2) {
+                                resetMeteor(meteor);
+                                score += 50;
+                                document.getElementById(
+                                    "score-display",
+                                ).innerText = `SCORE: ${score}`;
+                                scene.remove(laser);
+                                lasers.splice(l, 1);
+                                break;
+                            }
+                        }
+                    }
+
+                    // Update Meteors
+                    meteors.forEach((meteor) => {
+                        meteor.position.z += currentSpeed;
+                        meteor.rotation.x += 0.01;
+                        meteor.rotation.y += 0.015;
+
+                        let distance = shipGroup.position.distanceTo(
+                            meteor.position,
+                        );
+                        if (distance < shipRadius + meteor.userData.radius) {
+                            triggerGameOver();
+                        }
+
+                        if (meteor.position.z > 10) {
+                            resetMeteor(meteor);
+                            score += 10;
+                            document.getElementById("score-display").innerText =
+                                `SCORE: ${score}`;
+                        }
+                    });
+
+                    currentPitch +=
+                        (targetPitch - currentPitch) * smoothingFactor;
+                    currentRoll += (targetRoll - currentRoll) * smoothingFactor;
+
+                    shipGroup.rotation.x = -currentPitch * 0.8;
+                    shipGroup.rotation.z = currentRoll * 0.8;
+
+                    if (Math.abs(currentRoll) > 0.03) {
+                        shipGroup.position.x +=
+                            Math.sin(currentRoll) * flySpeed;
+                    }
+                    if (Math.abs(currentPitch) > 0.03) {
+                        shipGroup.position.y +=
+                            Math.sin(currentPitch) * flySpeed;
+                    }
+
+                    shipGroup.position.x = THREE.MathUtils.clamp(
+                        shipGroup.position.x,
+                        -8,
+                        8,
+                    );
+                    shipGroup.position.y = THREE.MathUtils.clamp(
+                        shipGroup.position.y,
+                        -4.5,
+                        4.5,
+                    );
+
+                    camera.position.x +=
+                        (shipGroup.position.x - camera.position.x) * 0.05;
+                    camera.position.y +=
+                        (shipGroup.position.y + 2.2 - camera.position.y) * 0.05;
+                }
+
+                renderer.render(scene, camera);
+            }
+            animate();
+
+            function triggerGameOver() {
+                isGameOver = true;
+                document.getElementById("final-score").innerText =
+                    `Final Score: ${score}`;
+                document.getElementById("game-over-screen").style.display =
+                    "flex";
+            }
+
+            function resetGame() {
+                score = 0;
+                document.getElementById("score-display").innerText = `SCORE: 0`;
+                document.getElementById("game-over-screen").style.display =
+                    "none";
+                shipGroup.position.set(0, 0, 0);
+                shipGroup.rotation.set(0, 0, 0);
+                camera.position.set(0, 2.2, 7);
+                currentPitch = 0;
+                currentRoll = 0;
+                targetPitch = 0;
+                targetRoll = 0;
+
+                lasers.forEach((l) => scene.remove(l));
+                lasers.length = 0;
+
+                meteors.forEach((meteor) => {
+                    resetMeteor(meteor);
+                    meteor.position.z = (Math.random() - 1) * 140;
+                });
+                isGameOver = false;
+            }
+
+            window.addEventListener("resize", () => {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            });
+
+            // --- 6. SOCKET INTERACTION ---
+            const socket = io("http://localhost:5000", {
+                transports: ["websocket", "polling"],
+            });
+
+            socket.on("orientation", function (data) {
+                if (isGameOver) return;
+                document.getElementById("telemetry").innerText =
+                    `Pitch: ${data.pitch.toFixed(2)} rad | Roll: ${data.roll.toFixed(2)} rad`;
+
+                targetPitch = data.pitch;
+                targetRoll = data.roll;
+
+                if (data.fire === 1) {
+                    fireLaser();
+                }
+            });
+        </script>
+    </body>
+</html>

@@ -1,0 +1,122 @@
+<!doctype html>
+<html>
+    <head>
+        <title>Arduino Real-Time Graph</title>
+        <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+        <style>
+            body {
+                font-family: sans-serif;
+                background: #121212;
+                color: #fff;
+                text-align: center;
+                padding: 20px;
+            }
+            .container {
+                width: 80%;
+                margin: 0 auto;
+                background: #1e1e1e;
+                padding: 20px;
+                border-radius: 8px;
+                box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
+            }
+            #status {
+                font-weight: bold;
+                margin-bottom: 20px;
+            }
+            .connected {
+                color: #00ff00;
+            }
+            .disconnected {
+                color: #ff0000;
+            }
+        </style>
+    </head>
+    <body>
+        <div id="status" class="disconnected">Status: Disconnected</div>
+
+        <div class="container">
+            <canvas id="chart"></canvas>
+        </div>
+
+        <script>
+            const statusDiv = document.getElementById("status");
+            const maxDataPoints = 150;
+
+            const ctx = document.getElementById("chart").getContext("2d");
+            const chart = new Chart(ctx, {
+                type: "line",
+                data: {
+                    labels: Array(maxDataPoints).fill(""),
+                    datasets: [
+                        {
+                            label: "X",
+                            borderColor: "#ff4a4a",
+                            data: [],
+                            tension: 0.2,
+                            pointRadius: 0,
+                        },
+                        {
+                            label: "Y",
+                            borderColor: "#4aff4a",
+                            data: [],
+                            tension: 0.2,
+                            pointRadius: 0,
+                        },
+                        {
+                            label: "Z",
+                            borderColor: "#4a4aff",
+                            data: [],
+                            tension: 0.2,
+                            pointRadius: 0,
+                        },
+                    ],
+                },
+                options: {
+                    responsive: true,
+                    animation: false,
+                    scales: {
+                        x: { display: false },
+                        y: {
+                            grid: { color: "#333" },
+                            ticks: { color: "#fff" },
+                        },
+                    },
+                    plugins: { legend: { labels: { color: "#fff" } } },
+                },
+            });
+
+            const ws = new WebSocket("ws://localhost:8765");
+
+            ws.onopen = () => {
+                statusDiv.textContent = "Status: Connected";
+                statusDiv.className = "connected";
+            };
+
+            ws.onclose = () => {
+                statusDiv.textContent = "Status: Disconnected";
+                statusDiv.className = "disconnected";
+            };
+
+            ws.onmessage = (event) => {
+                const points = event.data.split(",");
+                if (points.length === 3) {
+                    const xVal = parseFloat(points[0]);
+                    const yVal = parseFloat(points[1]);
+                    const zVal = parseFloat(points[2]);
+
+                    chart.data.datasets[0].data.push(xVal);
+                    chart.data.datasets[1].data.push(yVal);
+                    chart.data.datasets[2].data.push(zVal);
+
+                    if (chart.data.datasets[0].data.length > maxDataPoints) {
+                        chart.data.datasets[0].data.shift();
+                        chart.data.datasets[1].data.shift();
+                        chart.data.datasets[2].data.shift();
+                    }
+
+                    chart.update();
+                }
+            };
+        </script>
+    </body>
+</html>
