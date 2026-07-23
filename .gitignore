@@ -1,0 +1,6 @@
+bare_metal/led_blink/.pio
+bare_metal/led_blink/.vscode
+bare_metal/led_blink/include
+bare_metal/led_blink/lib
+bare_metal/led_blink/test
+final_project/

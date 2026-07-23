@@ -1,5 +1,0 @@
-# Dependencies for bridge.py (Serial version)
-# Install with:  pip install -r requirements.txt
-
-pyserial>=3.5
-websockets>=12.0

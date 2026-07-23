@@ -27,7 +27,7 @@ void loop() {
     Serial.print(" B: ");
     Serial.println(b);
 
-    if (r > 200 && g > 255 && b > 255) {
+    if (r > 255 && g > 255 && b > 255) {
       digitalWrite(LEDR, !HIGH);
       digitalWrite(LEDG, !HIGH);
       digitalWrite(LEDB, !HIGH);
